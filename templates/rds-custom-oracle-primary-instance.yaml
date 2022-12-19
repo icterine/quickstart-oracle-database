@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: >-
+  Creates custom Oracle database instance via Lamdba code. Stack requires KMS encryption
+  key created with alias rds-custom-oracle. It is already in place
+  if rds-custom-oracle-prepare.yaml template been used to prepare resources.
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - Label:
+          default: RDS Custom Oracle instance parameters
+        Parameters:
+          - EngineVersion
+          - DBInstanceIdentifier
+          - DBInstanceClass
+      - Label:
+          default: Storage parameters
+        Parameters:
+          - StorageType
+          - AllocatedStorage
+          - ProvisionedIOPS
+      - Label:
+          default: Database parameters
+        Parameters:
+          - DBName
+          - DatabasePort
+          - MasterUsername
+      - Label:
+          default: Additional configuration
+        Parameters:
+          - DeletionProtection
+    ParameterLabels:
+      EngineVersion:
+        default: Custom engine version
+      DBInstanceIdentifier:
+        default: DB instance identifier
+      DBInstanceClass:
+        default: DB instance class
+      StorageType:
+        default: Storage type
+      AllocatedStorage:
+        default: Allocated storage
+      ProvisionedIOPS:
+        default: Provisioned IOPS
+      DBName:
+        default: Oracle SID name
+      DatabasePort:
+        default: Database port
+      DeletionProtection:
+        default: Enable deletion protection
+      MasterUsername:
+        default: Master username
+
+
+
+Parameters:
+  EngineVersion:
+    Type: String
+    Description: >-
+       Custom engine version for instance. Engine version start with major version number followed by period and custom name
+       Example: 19.mycustom-cev1234
+    Default: '19.mycustom-cev1234'
+    AllowedPattern: ^1([89]|(2\.[12]))\.[0-9a-zA-Z]+([0-9a-zA-Z-_\.]){1,49}$
+    ConstraintDescription: '1-55 lowercase alphanumeric characters, hyphens, underscores, or periods. Example: 19.mycustom-cev1234'
+  DBInstanceIdentifier:
+    Type: String
+    Description: >-
+       The DB instance identifier
+    Default: 'rds-custom-oracle-primary'
+    AllowedPattern: ^[a-z][a-z0-9-]{1,63}$
+    ConstraintDescription: '1-64 lowercase alphanumeric characters or hyphens'
+  DBInstanceClass:
+    Type: String
+    Description: >-
+       The compute and memory capacity of the DB instance, for example db.m5.large. 
+       Not all DB instance classes are available in all Amazon Web Services Regions
+    Default: db.m5.large
+    AllowedValues:
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+      - db.m5.8xlarge
+      - db.m5.12xlarge
+      - db.m5.16xlarge
+      - db.m5.24xlarge
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+      - db.r5.4xlarge
+      - db.r5.8xlarge
+      - db.r5.12xlarge
+      - db.r5.16xlarge
+      - db.r5.24xlarge
+  MasterUsername:
+    Type: String
+    Description: The name for the master user
+    Default: master
+    AllowedPattern: ^[a-z][a-z0-9]{1,15}$
+    ConstraintDescription: 1 to 16 alphanumeric characters. First character must be a letter.
+  StorageType:
+    Type: String
+    Description: >-
+           General Purpose (SSD) storage is suitable for a broad range of database workloads.
+           Provides baseline of 3 IOPS/GiB and ability to burst to 3,000 IOPS.
+           Provisioned IOPS (SSD) storage is suitable for I/O-intensive database workloads. 
+           Provides flexibility to provision I/O ranging from 1,000 to 40,000 IOPS.
+    AllowedValues:
+      - gp2
+      - io1
+    ConstraintDescription: Only gp2 or io1 are allowed.
+    Default: gp2
+  AllocatedStorage:
+    Type: Number
+    Description: >-
+           Minimum: 40 GiB. Maximum: 65,536 GiB. Higher allocated storage can improve IOPS performance for gp2 storage type.
+    MinValue: 40
+    MaxValue: 65536
+    ConstraintDescription: Numerical value between 40 and 65536
+    Default: 40
+  ProvisionedIOPS:
+    Type: Number
+    Description: >-
+           The amount of Provisioned IOPS for io1storage type
+    MinValue: 1000
+    MaxValue: 40000
+    ConstraintDescription: Integer from 1000 to 40000 for RDS Custom for Oracle
+    Default: 3000
+  DatabasePort:
+    Type: Number
+    Description: TCP/IP port that the database will use for application connections.
+    MinValue: 1150
+    MaxValue: 65535
+    ConstraintDescription: Port range between 115040 and 65535
+    Default: 1521
+  DBName:
+    Type: String
+    Description: Oracle System ID (SID) of the created DB instance
+    Default: ORCL
+    AllowedPattern: ^[a-zA-Z][a-zA-Z0-9]{1,7}$
+    ConstraintDescription: 1 to 8 alphanumeric characters. First character must be a letter.  
+  DeletionProtection:
+    Type: String
+    Description: Protects the database from being deleted accidentally. While this option is enabled, you can't delete the database.
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+
+
+Resources:
+  RDSCustomEventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Rule used to trigger Lamdba status check function
+      Name: !Sub 'rds-custom-oracle-check-status-${DBInstanceIdentifier}'
+      ScheduleExpression: rate(10 minutes)
+      State: DISABLED
+      Targets:
+          - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleSNS'
+            Id: email
+            Input:
+              Fn::ToJsonString: 
+                Phase : "primary_instance"
+                SNSTopicArn : !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:rds-custom-oracle-notifications"
+                EventRule : !Sub "rds-custom-oracle-check-status-${DBInstanceIdentifier}"
+                DBInstanceIdentifier : !Ref DBInstanceIdentifier
+                Region : !Sub ${AWS::Region}
+
+  RDSCustomMainPassword:
+      Type: AWS::SSM::Parameter
+      Properties: 
+        Name: !Sub '/rds-custom/oracle/${DBInstanceIdentifier}/${MasterUsername}/password'
+        Type: String
+        Value: placeholder for SecureString password value
+
+  RDSCustomIPrimaryInstance:
+    DependsOn: RDSCustomMainPassword
+    Type: Custom::RDSCustomInstance
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOraclePrimaryInstance'
+      Region: !Ref "AWS::Region"
+      EngineVersion: !Ref  EngineVersion
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBInstanceClass: !Ref DBInstanceClass
+      MasterUsername: !Ref MasterUsername
+      StorageType: !Ref StorageType
+      AllocatedStorage: !Ref AllocatedStorage
+      ProvisionedIOPS: !Ref ProvisionedIOPS
+      DBSubnetGroupName: rds-custom-oracle-dbsubnet
+      CustomIamInstanceProfile: !Sub 'AWSRDSCustomInstanceProfile-${AWS::Region}'
+      MainUserPasswordSSM: !Sub '/rds-custom/oracle/${DBInstanceIdentifier}/${MasterUsername}/password'
+      DatabasePort: !Ref DatabasePort
+      DBName: !Ref DBName
+      DeletionProtection: !Ref DeletionProtection
+      KmsKeyId: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/rds-custom-oracle'
+      EventRule: !Ref RDSCustomEventRule
+  
+Outputs: 
+  RDSCustomIPrimaryInstance:
+    Description: Output
+    Value: !GetAtt  RDSCustomIPrimaryInstance.output
+
+          
+          
+
+    

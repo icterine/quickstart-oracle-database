@@ -1,22 +1,25 @@
 project:
   name: quickstart-oracle-database
   owner: quickstart-eng@amazon.com
-  package_lambda: false
+  lambda_source_path: functions/source
+  lambda_zip_path: functions/packages
+  package_lambda: true
+  s3_bucket: aws-quickstart-develop-rds-custom
   regions:
-    - ap-northeast-1
-    - ap-northeast-2
+    #- ap-northeast-1
+    #- ap-northeast-2
     #- ap-south-1
-    - ap-southeast-1
+    #- ap-southeast-1
     - ap-southeast-2
     #- ca-central-1
-    - eu-central-1
-    - eu-west-1
+    #- eu-central-1
+    #- eu-west-1
     #- eu-west-2
     #- sa-east-1
-    - us-east-1
-    - us-east-2
-    - us-west-1
-    - us-west-2
+    #- us-east-1
+    #- us-east-2
+    #- us-west-1
+    #- us-west-2
 tests:
   master-single-12201-ol73:
     parameters:
@@ -386,3 +389,48 @@ tests:
       - eu-west-2
       - us-east-2
     template: templates/oracle-database-master.template.yaml  
+  rds-custom-oracle-prep:
+    parameters:
+      AvailabilityZones: $[taskcat_genaz_2]
+      BastionInstanceType: t2.micro
+      OSBBucketName: override
+      PrivateSubnet1CIDR: 10.0.0.0/19
+      PrivateSubnet2CIDR: 10.0.32.0/19
+      PublicSubnet1CIDR: 10.0.128.0/20
+      PublicSubnet2CIDR: 10.0.144.0/20
+      VPCCIDR: 10.0.0.0/16
+      QSS3BucketName: aws-quickstart-develop-rds-custom
+      QSS3BucketRegion: $[taskcat_current_region]
+      S3MediaBucketName: custom-oracle-media-731272730159
+      NotificationEmail: azatn@amazon.com
+    template: templates/rds-custom-oracle-config.yaml
+    stack_name: rds-custom-oracle-prep
+  rds-custom-oracle-engine:
+    parameters:
+      CustomEngineMajorVersion: 19
+      CustomEngineVersionName: engine2
+      CustomEngineDescription: 'New one'
+      S3MediaBucketName: custom-oracle-media-731272730159
+      S3MediaPrefix: cev1
+      KMSKeyId: arn:aws:kms:ap-southeast-2:731272730159:alias/rds-custom-oracle
+    template: templates/rds-custom-oracle-engine.yaml
+    stack_name: rds-custom-oracle-engine
+  rds-custom-oracle-primary-instance:
+    parameters:
+      EngineVersion: 19.engine1
+      DBInstanceIdentifier: customp01
+      DBInstanceClass: db.m5.large
+      MasterUsername: decrimary02
+      StorageType: io1
+      AllocatedStorage: 100
+      ProvisionedIOPS: 3000
+      DatabasePort: 1521
+      DBName: INST1
+      DeletionProtection: 'no'
+      KMSKeyId: arn:aws:kms:ap-southeast-2:731272730159:alias/rds-custom-oracle
+    template: templates/rds-custom-oracle-primary-instance.yaml
+  rds-custom-oracle-standby-instance:
+    parameters:
+      SourceDBInstanceIdentifier: primaryrds
+      DBInstanceIdentifier: standbyrds
+    template: templates/rds-custom-oracle-standby-instance.yaml

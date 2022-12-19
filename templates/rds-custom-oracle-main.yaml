@@ -1,0 +1,847 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Creates a VPC  across two Avaliaablity Zones.
+  Stack depoys VPC accoting to quick-start best practices
+  and configure it for RDS Custom for Oracle
+  You will be billed for the AWS resources used if you create a stack from this template.
+  Preprequsite: S3 bucket same region to keep installation media and CEV manifest file
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - Label:
+          default: AWS Quick Start Configuration
+        Parameters:
+          - QSS3BucketName
+          - QSS3BucketRegion
+          - QSS3KeyPrefix
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - AvailabilityZones
+          - VPCCIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+      - Label:
+          default: Deployment settings
+        Parameters:
+          - NotificationEmail
+          - DeployDataBaseInstances
+      - Label:
+          default: RDS Custom Oracle Parameters
+        Parameters:
+          - CustomEngineMajorVersion
+          - CustomEngineVersionName
+          - CustomEngineDescription
+          - PrimaryDBInstanceIdentifier
+          - StandbyDBInstanceIdentifier
+          - DBInstanceClass
+          - StorageType
+          - AllocatedStorage
+          - ProvisionedIOPS
+          - DBName
+          - DatabasePort
+          - MasterUsername
+          - DeletionProtection
+      - Label:
+          default: Installation media
+        Parameters:
+          - S3MediaBucketName
+          - S3MediaPrefix
+    ParameterLabels:
+      AvailabilityZones:
+        default: Availability Zones
+      PrivateSubnet1CIDR:
+        default: Private Subnet 1 CIDR
+      PrivateSubnet2CIDR:
+        default: Private Subnet 2 CIDR
+      PublicSubnet1CIDR:
+        default: Public Subnet 1 CIDR
+      PublicSubnet2CIDR:
+        default: Public Subnet 2 CIDR
+      QSS3BucketName:
+        default: Quick Start S3 Bucket Name
+      QSS3BucketRegion:
+        default: Quick Start S3 bucket region
+      QSS3KeyPrefix:
+        default: Quick Start S3 Key Prefix
+      S3MediaBucketName:
+        default: S3 bucket for Oracle binaries and manifest
+      VPCCIDR:
+        default: VPC CIDR
+      NotificationEmail:
+        default: Notification email to get deployment updates
+      DeployDataBaseInstances:
+        default: Oracle instance deployment
+      CustomEngineMajorVersion:
+        default: Oracle Major version
+      CustomEngineVersionName:
+        default: Custom engine version name
+      S3MediaBucketName:
+        default: S3 location of oracle files used in manifest
+      S3MediaPrefix:
+        default: Prefix within S3 bucket for oracle files and manifest
+      PrimaryDBInstanceIdentifier:
+        default: Primary DB instance identifier
+      DBInstanceClass:
+        default: DB instance class
+      StorageType:
+        default: Storage type
+      AllocatedStorage:
+        default: Allocated storage
+      ProvisionedIOPS:
+        default: Provisioned IOPS
+      DBName:
+        default: Oracle SID name
+      DatabasePort:
+        default: Database port
+      DeletionProtection:
+        default: Enable deletion protection
+      MasterUsername:
+        default: Master username
+      DBInstanceIdentifier:
+        default: Standby DB instance identifier
+      StandbyDBInstanceIdentifier:
+        default: Replica DB instance identifier (Standby)
+
+
+Parameters:
+  AvailabilityZones:
+    Description: >- 
+      List of Availability Zones to use for the subnets in the VPC. Note:
+      The logical order is preserved and only 2 AZs are used for this deployment.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+  VPCCIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.0.0/16
+    Description: CIDR Block for the VPC
+    Type: String
+  PrivateSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.0.0/19
+    Description: CIDR block for private subnet 1 located in Availability Zone 1.
+    Type: String
+  PrivateSubnet2CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.32.0/19
+    Description: CIDR block for private subnet 2 located in Availability Zone 2.
+    Type: String
+  PublicSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.128.0/20
+    Description: CIDR Block for the public DMZ subnet 1 located in Availability Zone 1
+    Type: String
+  PublicSubnet2CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.144.0/20
+    Description: CIDR Block for the public DMZ subnet 2 located in Availability Zone 2
+    Type: String
+  NotificationEmail:
+    AllowedPattern: '[^@]+@[^@]+\.[^@]+'
+    ConstraintDescription: Enter valid email adress
+    Description: Email adress to recieve noification with progress of custom engine and instance provision
+    Type: String
+  QSS3BucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Default: aws-quickstart
+    Description: S3 bucket name for the Quick Start assets. Quick Start bucket name
+      can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).
+    Type: String
+  QSS3BucketRegion:
+    Default: 'us-east-1'
+    Description: 'The AWS Region where the Quick Start S3 bucket (QSS3BucketName) is hosted. When using your own bucket, you must specify this value.'
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/]*$
+    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
+      uppercase letters, hyphens (-), and forward slash (/).
+    Default: quickstart-oracle-database/
+    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), and
+      forward slash (/).
+    Type: String   
+  S3MediaBucketName:
+    Type: String
+    Default: ""
+    Description: >-
+      S3 bucket name hosting Oracle media files and manifest file. Must be created in same region. 
+      Default name is custom-oracle-{AccountID}-{Region}     
+  DeployDataBaseInstances:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes' 
+      - 'no'
+    Description: >-
+      RDS Custom Oracle database creation can take up tp 5 hours and can fail due mismatch parameters. More controlled
+      way is to deploy custom engine followed by primary instance and optional standby instance via dedicated provided
+      CF templates
+      "yes" option will deploy those stacks via lamdba code and notitfy progress vie email subscription.  
+      Additional engines and instances can be added via dediated stacks at any time.
+  CustomEngineMajorVersion:
+    Type: String
+    Description: >-
+       The major engine version the CEV is built on. 
+    Default: 19
+    AllowedValues:
+      - 12.1
+      - 12.2
+      - 18
+      - 19
+  CustomEngineVersionName:
+    Type: String
+    Description: >-
+       Unique custom engine version name
+    Default: 'mycustom-cev1234'
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-_\.]){1,49}$
+    ConstraintDescription: '1-50 lowercase alphanumeric characters, hyphens, underscores, or periods. Example: 19.mycustom-cev1234'
+  CustomEngineDescription:
+      Type: String
+      Default: This is RDS Custom Oracle engine
+      Description: >-
+        Description of custom CEV
+  S3MediaBucketName:
+    Type: String
+    Description: >-
+      Provide bucket name with location of Oracle binaries and patches. 
+  S3MediaPrefix:
+    Type: String
+    Description: >-
+      Provide prefix with location of Oracle binaries and patches.
+  PrimaryDBInstanceIdentifier:
+    Type: String
+    Description: >-
+       The DB instance identifier
+    Default: 'rds-custom-oracle-instance'
+    AllowedPattern: ^[a-z][a-z0-9-]{1,63}$
+    ConstraintDescription: '1-64 lowercase alphanumeric characters or hyphens'
+  StandbyDBInstanceIdentifier:
+    Type: String
+    Description: >-
+       The DB instance identifier
+    Default: 'rds-custom-oracle-instance-standby'
+    AllowedPattern: ^[a-z][a-z0-9-]{1,63}$
+    ConstraintDescription: '1-64 lowercase alphanumeric characters or hyphens'
+  DBInstanceClass:
+    Type: String
+    Description: >-
+       The compute and memory capacity of the DB instance, for example db.m5.large. 
+       Not all DB instance classes are available in all Amazon Web Services Regions
+    Default: db.m5.large
+    AllowedValues:
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+      - db.m5.8xlarge
+      - db.m5.12xlarge
+      - db.m5.16xlarge
+      - db.m5.24xlarge
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+      - db.r5.4xlarge
+      - db.r5.8xlarge
+      - db.r5.12xlarge
+      - db.r5.16xlarge
+      - db.r5.24xlarge
+  MasterUsername:
+    Type: String
+    Description: The name for the master user
+    Default: master
+    AllowedPattern: ^[a-z][a-z0-9]{1,15}$
+    ConstraintDescription: 1 to 16 alphanumeric characters. First character must be a letter.
+  StorageType:
+    Type: String
+    Description: >-
+           General Purpose (SSD) storage is suitable for a broad range of database workloads.
+           Provides baseline of 3 IOPS/GiB and ability to burst to 3,000 IOPS.
+           Provisioned IOPS (SSD) storage is suitable for I/O-intensive database workloads. 
+           Provides flexibility to provision I/O ranging from 1,000 to 40,000 IOPS.
+    AllowedValues:
+      - gp2
+      - io1
+    ConstraintDescription: Only gp2 or io1 are allowed.
+    Default: gp2
+  AllocatedStorage:
+    Type: Number
+    Description: >-
+           Minimum: 40 GiB. Maximum: 65,536 GiB. Higher allocated storage can improve IOPS performance for gp2 storage type.
+    MinValue: 40
+    MaxValue: 65536
+    ConstraintDescription: Numerical value between 40 and 65536
+    Default: 40
+  ProvisionedIOPS:
+    Type: Number
+    Description: >-
+           The amount of Provisioned IOPS for io1storage type
+    MinValue: 1000
+    MaxValue: 40000
+    ConstraintDescription: Integer from 1000 to 40000 for RDS Custom for Oracle
+    Default: 3000
+  DatabasePort:
+    Type: Number
+    Description: TCP/IP port that the database will use for application connections.
+    MinValue: 1150
+    MaxValue: 65535
+    ConstraintDescription: Port range between 115040 and 65535
+    Default: 1521
+  DBName:
+    Type: String
+    Description: Oracle System ID (SID) of the created DB instance
+    Default: ORCL
+    AllowedPattern: ^[a-zA-Z][a-zA-Z0-9]{1,7}$
+    ConstraintDescription: 1 to 8 alphanumeric characters. First character must be a letter.  
+  DeletionProtection:
+    Type: String
+    Description: Protects the database from being deleted accidentally. While this option is enabled, you can’t delete the database.
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+
+
+Rules:
+  RDSCustomOracleSupportedRegion:
+    Assertions:
+      - Assert: !Contains 
+          - - us-east-2
+            - us-east-1
+            - us-west-2
+            - ap-southeast-1
+            - ap-southeast-2
+            - ap-northeast-1
+            - eu-central-1
+            - eu-north-1
+          - !Ref 'AWS::Region'
+        AssertDescription: RDS Custom is not avaliable in this region
+  OracleInstancesNameMatch:
+    Assertions:
+      - Assert: !Not 
+          - !Equals
+            - !Ref PrimaryDBInstanceIdentifier
+            - !Ref StandbyDBInstanceIdentifier
+        AssertDescription: RDS Custom Primary and Replica names must be different
+Conditions: 
+  S3BucketNonDefaultName: !Not [!Equals [!Ref S3MediaBucketName, ""]]
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
+  DeployDatabase: !Equals [!Ref DeployDataBaseInstances, 'yes']
+
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        !Sub
+          - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}submodules/quickstart-aws-vpc/templates/aws-vpc.template.yaml
+          - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+            S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        AvailabilityZones: !Join
+          - ','
+          - !Ref 'AvailabilityZones'
+        NumberOfAZs: '2'
+        PrivateSubnet1ACIDR: !Ref 'PrivateSubnet1CIDR'
+        PrivateSubnet2ACIDR: !Ref 'PrivateSubnet2CIDR'
+        PublicSubnet1CIDR: !Ref 'PublicSubnet1CIDR'
+        PublicSubnet2CIDR: !Ref 'PublicSubnet2CIDR'
+        VPCCIDR: !Ref 'VPCCIDR'
+  VPCConfig:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        !Sub
+          - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/rds-custom-oracle-config.yaml
+          - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+            S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        AvailabilityZones: !Join
+          - ','
+          - !Ref 'AvailabilityZones'
+        NumberOfAZs: '2'
+        PrivateSubnet1ACIDR: !Ref 'PrivateSubnet1CIDR'
+        PrivateSubnet2ACIDR: !Ref 'PrivateSubnet2CIDR'
+        PublicSubnet1CIDR: !Ref 'PublicSubnet1CIDR'
+        PublicSubnet2CIDR: !Ref 'PublicSubnet2CIDR'
+        VPCCIDR: !Ref 'VPCCIDR'
+  vpceEC2:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceEC2Messages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2messages'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceMonitoring:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.monitoring'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceSSM:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssm'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceSSMMessages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssmmessages'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceLogs:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceEvents:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.events'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  vpceSecretsManager:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: rds-custom-oracle-dbsubnet
+      DBSubnetGroupDescription: RDS Custom Private Network
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnet1AID
+        - !GetAtt VPCStack.Outputs.PrivateSubnet2AID
+  RDSCustomKMSKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      Description: KMS key for Custom Oracle RDS
+      Enabled: true
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-default-1
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Access for Lambda function
+            Effect: Allow
+            Principal: '*'
+            Condition:
+              StringLike:
+                aws:PrincipalArn: !Sub '*role/RoleAWSLambdaCustomOracleRole-${AWS::Region}*'
+                aws:PrincipalAccount: !Sub ${AWS::AccountId}
+            Action: 
+              - 'kms:*'       
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: custom-oracle
+  RDSCustomKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: 
+      AliasName: alias/rds-custom-oracle
+      TargetKeyId: !Ref RDSCustomKMSKey
+  RDSCustomKMSKeySSM:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Description: Parameter for KMS key used by RDS Custom Oracle
+      Name: rds-custom-oracle-kms-alias
+      Type: String
+      Value: !Ref RDSCustomKMSKeyAlias
+  RDSCustomOracleSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties: 
+      DisplayName: Topic used to send notification for RDS custom provision
+      TopicName: rds-custom-oracle-sns
+  RDSCustomOracleSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref NotificationEmail
+      Protocol: email
+      TopicArn: !Ref RDSCustomOracleSNSTopic
+  RoleAWSLamdbaSNSNotificaion:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'RoleAWSLamdbaSNSNotificaion-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com    
+      Path: /  
+      Policies:
+        - PolicyName: PublishRDSCustomSNS
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: PublishSNSMessage
+                Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref RDSCustomOracleSNSTopic
+  RoleAWSLambdaCustomOracleRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'RoleAWSLambdaCustomOracleRole-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com    
+      Path: /  
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+      Policies:
+        - PolicyName: AWSRDSCUstomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: CreateS3Bucket
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketObjectLockConfiguration
+                  - s3:PutBucketVersioning
+                Resource: arn:aws:s3:::do-not-delete-rds-custom-*
+              - Sid: CreateKmsGrant
+                Effect: Allow
+                Action: kms:CreateGrant
+                Resource: "*"
+              - Sid: 'KMS'
+                Effect: Allow
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:CreateGrant'
+                Resource:
+                  -  !GetAtt RDSCustomKMSKey.Arn
+              - Sid: AccessToS3MediaBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObjectAcl
+                  - s3:GetObject
+                  - s3:GetObjectTagging
+                  - s3:ListBucket
+                Resource:
+                  - !If [S3BucketNonDefaultName,  !Sub 'arn:aws:s3:::${S3MediaBucketName}',  !Sub 'arn:aws:s3:::custom-oracle-${AWS::AccountId}-${AWS::Region}' ]
+                  - !If [S3BucketNonDefaultName,  !Sub 'arn:aws:s3:::${S3MediaBucketName}/*',  !Sub 'arn:aws:s3:::custom-oracle-${AWS::AccountId}-${AWS::Region}/*' ]
+              - Sid: PermissionForByom
+                Effect: Allow
+                Action: mediaimport:CreateDatabaseBinarySnapshot
+                Resource: "*"
+              - Sid: Passrole
+                Effect: Allow
+                Action: 
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/AWSRDSCustomInstanceRole-${AWS::Region}'
+              - Sid: ValidateIamRole
+                Effect: Allow
+                Action: iam:SimulatePrincipalPolicy
+                Resource: "*"
+              - Sid: CreateCloudTrail
+                Effect: Allow
+                Action:
+                  - cloudtrail:CreateTrail
+                  - cloudtrail:StartLogging
+                Resource: "arn:aws:cloudtrail:*:*:trail/do-not-delete-rds-custom-*"
+              - Sid: UpdateSNStopic
+                Effect: Allow
+                Action:
+                  - events:PutTargets
+                  - events:EnableRule
+                  - events:DisableRule
+                  - events:ListTargetsByRule
+                Resource: "arn:aws:events:*:*:rule/rds-custom-oracle-check-status*"
+              - Sid: UpdateSSMPassword
+                Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                Resource: "arn:aws:ssm:*:*:parameter/rds-custom/oracle/*/*/password"
+  ServiceRoleRDSCustomInstance:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'AWSRDSCustomInstanceRole-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: AWSRDSCustomEc2InstanceRolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: '1'
+                Effect: Allow
+                Action:
+                  - 'ssm:DescribeAssociation'
+                  - 'ssm:GetDeployablePatchSnapshotForInstance'
+                  - 'ssm:GetDocument'
+                  - 'ssm:DescribeDocument'
+                  - 'ssm:GetManifest'
+                  - 'ssm:GetParameter'
+                  - 'ssm:GetParameters'
+                  - 'ssm:ListAssociations'
+                  - 'ssm:ListInstanceAssociations'
+                  - 'ssm:PutInventory'
+                  - 'ssm:PutComplianceItems'
+                  - 'ssm:PutConfigurePackageResult'
+                  - 'ssm:UpdateAssociationStatus'
+                  - 'ssm:UpdateInstanceAssociationStatus'
+                  - 'ssm:UpdateInstanceInformation'
+                  - 'ssm:GetConnectionStatus'
+                  - 'ssm:DescribeInstanceInformation'
+                  - 'ssmmessages:CreateControlChannel'
+                  - 'ssmmessages:CreateDataChannel'
+                  - 'ssmmessages:OpenControlChannel'
+                  - 'ssmmessages:OpenDataChannel'
+                Resource:
+                  - '*'
+              - Sid: '2'
+                Effect: Allow
+                Action:
+                  - 'ec2messages:AcknowledgeMessage'
+                  - 'ec2messages:DeleteMessage'
+                  - 'ec2messages:FailMessage'
+                  - 'ec2messages:GetEndpoint'
+                  - 'ec2messages:GetMessages'
+                  - 'ec2messages:SendReply'
+                Resource:
+                  - '*'
+              - Sid: '3'
+                Effect: Allow
+                Action:
+                  - 'logs:PutRetentionPolicy'
+                  - 'logs:PutLogEvents'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:CreateLogStream'
+                  - 'logs:CreateLogGroup'
+                Resource:
+                  - !Sub >-
+                    arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:rds-custom-instance*
+              - Sid: '4'
+                Effect: Allow
+                Action:
+                  - 's3:putObject'
+                  - 's3:getObject'
+                  - 's3:getObjectVersion'
+                Resource:
+                  - 'arn:aws:s3:::do-not-delete-rds-custom-*/*'
+              - Sid: '5'
+                Effect: Allow
+                Action:
+                  - 'cloudwatch:PutMetricData'
+                Resource:
+                  - '*'
+                Condition:
+                  StringEquals:
+                    'cloudwatch:namespace':
+                      - RDSCustomForOracle/Agent
+              - Sid: '6'
+                Effect: Allow
+                Action:
+                  - 'events:PutEvents'
+                Resource:
+                  - '*'
+              - Sid: '7'
+                Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:DescribeSecret'
+                Resource:
+                  - !Sub >-
+                    arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:do-not-delete-rds-custom-*
+              - Sid: '8'
+                Effect: Allow
+                Action:
+                  - 's3:ListBucketVersions'
+                Resource:
+                  - 'arn:aws:s3:::do-not-delete-rds-custom-*'
+              - Sid: '9'
+                Effect: Allow
+                Action: 'ec2:CreateSnapshots'
+                Resource:
+                  - 'arn:aws:ec2:*:*:instance/*'
+                  - 'arn:aws:ec2:*:*:volume/*'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/AWSRDSCustom': custom-oracle
+              - Sid: '10'
+                Effect: Allow
+                Action: 'ec2:CreateSnapshots'
+                Resource:
+                  - 'arn:aws:ec2:*::snapshot/*'
+              - Sid: '11'
+                Effect: Allow
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource:
+                  - !GetAtt RDSCustomKMSKey.Arn
+              - Sid: '12'
+                Effect: Allow
+                Action: 'ec2:CreateTags'
+                Resource: '*'
+                Condition:
+                  StringLike:
+                    'ec2:CreateAction':
+                      - CreateSnapshots
+  ProfileRDSCustomInstance:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: !Sub 'AWSRDSCustomInstanceProfile-${AWS::Region}'
+      Path: /
+      Roles:
+        - !Ref ServiceRoleRDSCustomInstance
+  LambdaRDSCustomOracleEngine:
+    DependsOn: RoleAWSLambdaCustomOracleRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 900
+      Runtime: python3.7
+      Handler: index.lambda_handler
+      Description: Function to create Oracle custom engine
+      FunctionName: RDSCustomOracleEngine
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/RoleAWSLambdaCustomOracleRole-${AWS::Region}'
+      Code:
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/rds-custom-oracle-engine/lambda.zip'
+  LambdaRDSCustomOracleSNS:
+    DependsOn: RoleAWSLambdaCustomOracleRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 30
+      Runtime: python3.7
+      Handler: index.lambda_handler
+      Description: Function to check RDS Custom provision and send notification
+      FunctionName: RDSCustomOracleSNS
+      Role: !GetAtt RoleAWSLambdaCustomOracleRole.Arn
+      Code:
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/rds_custom_oracle_sns/lambda.zip'
+  LambdaRDSCustomOraclePrimaryInstance:
+    DependsOn: RoleAWSLambdaCustomOracleRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 15
+      Runtime: python3.7
+      Handler: index.lambda_handler
+      Description: Function to check RDS Custom provision and send notification
+      FunctionName: RDSCustomOracleInstance
+      Role: !GetAtt RoleAWSLambdaCustomOracleRole.Arn
+      Code:
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/rds_custom_oracle_primary_instance/lambda.zip'
+  LambdaRDSCustomOracleStandbyInstance:
+    DependsOn: RoleAWSLambdaCustomOracleRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 15
+      Runtime: python3.7
+      Handler: index.lambda_handler
+      Description: Function to check RDS Custom provision and send notification
+      FunctionName: RDSCustomOracleInstance
+      Role: !GetAtt RoleAWSLambdaCustomOracleRole.Arn
+      Code:
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/rds_custom_oracle_standby_instance/lambda.zip'
+  PermissionLambdaRDSCustomOracleSNS:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaRDSCustomOracleSNS
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: 
+        !Join 
+          - ''
+          - - 'arn:aws:events:'
+            - !Ref 'AWS::Region'
+            - ':'
+            - !Ref 'AWS::AccountId'
+            - ':rule/*'
+  # EventRuleRDSCustomOracleDeployment:
+  #   Type: AWS::Events::Rule
+  #   Properties: 
+  #     Description: Rule used to trigger Lamdba deplyment function
+  #     Name: 'rds-custom-oracle-deployment'
+  #     ScheduleExpression: rate(15 minutes)
+  #     State: DISABLED
+  #     Targets:
+  #         - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleSNS'
+  #           Id: deplyment
+  #           Input:
+  #             !Sub >-
+  #               { "Action" : "custom-engine", 
+  #                 "SNSTopicArn" : "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:rds-custom-oracle-sns",
+  #                 "EventRule" : "rds-custom-oracle-deployment",
+  #                 "DBInstanceIdentifier": "${DBInstanceIdentifier}"
+  #               }
+Outputs:
+  KMSEncryptionKey:
+    Description: Encryption Key for RDS Custom Oracle
+    Value: !GetAtt RDSCustomKMSKey.Arn

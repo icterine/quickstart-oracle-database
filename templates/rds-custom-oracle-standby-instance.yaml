@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: >-
+  Create mounted standby replica of primary RDS Custom Oracle instance
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - Label:
+          default: RDS Custom Oracle instance parameters
+        Parameters:
+          - DBInstanceIdentifier
+          - SourceDBInstanceIdentifier
+    ParameterLabels:
+      DBInstanceIdentifier:
+        default: Standby DB instance identifier
+      SourceDBInstanceIdentifier:
+        default: Source Primary instance identifier
+
+
+Parameters:
+  SourceDBInstanceIdentifier:
+    Type: String
+    Description: >-
+       The DB instance identifier
+    Default: 'rds-custom-oracle-standby'
+    AllowedPattern: ^[a-z][a-z0-9-]{1,63}$
+    ConstraintDescription: '1-64 lowercase alphanumeric characters or hyphens'
+  DBInstanceIdentifier:
+    Type: String
+    Description: >-
+       The DB instance identifier
+    Default: 'rds-custom-oracle-instance-1'
+    AllowedPattern: ^[a-z][a-z0-9-]{1,63}$
+    ConstraintDescription: '1-64 lowercase alphanumeric characters or hyphens'
+
+Resources:
+  RDSCustomEventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Rule used to trigger Lamdba status check function
+      Name: !Sub 'rds-custom-oracle-check-status-${DBInstanceIdentifier}'
+      ScheduleExpression: rate(10 minutes)
+      State: DISABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleSNS'
+          Id: email
+          Input:
+            Fn::ToJsonString: 
+              Phase : "standby_instance"
+              SNSTopicArn : !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:rds-custom-oracle-notifications"
+              EventRule : !Sub "rds-custom-oracle-check-status-${DBInstanceIdentifier}"
+              DBInstanceIdentifier : !Ref DBInstanceIdentifier
+              Region : !Sub ${AWS::Region}
+
+  RDSCustomStandbyInstance:
+    Type: Custom::RDSCustomInstance
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleStandbyInstance'
+      Region: !Ref "AWS::Region"
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      SourceDBInstanceIdentifier: !Ref SourceDBInstanceIdentifier
+      EventRule: !Ref RDSCustomEventRule
+     
+  
+Outputs: 
+  RDSCustomStandbyInstance:
+    Description: Output
+    Value: !GetAtt  RDSCustomStandbyInstance.output

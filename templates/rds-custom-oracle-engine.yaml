@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: >-
+  Creates custom engine via Lamdba code. Stack requires KMS encryption
+  key created with alias rds-custom-oracle. It is already in place
+  if rds-custom-oracle-prepare.yaml template been used to prepare resources.
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - Label:
+          default: Custom Oracle Engine parameters
+        Parameters:
+          - CustomEngineMajorVersion
+          - CustomEngineVersionName
+          - CustomEngineDescription
+      - Label:
+          default: Installation media
+        Parameters:
+          - S3MediaBucketName
+          - S3MediaPrefix
+      - Label:
+          default: AWS Quick Start Configuration
+        Parameters:
+          - QSS3BucketName
+          - QSS3BucketRegion
+          - QSS3KeyPrefix
+    ParameterLabels:
+      CustomEngineMajorVersion:
+        default: Oracle Major version
+      CustomEngineVersionName:
+        default: Custom engine version name
+      S3MediaBucketName:
+        default: S3 location of oracle files used in manifest
+      S3MediaPrefix:
+        default: Prefix within S3 bucket for oracle files and manifest
+      QSS3BucketName:
+        default: Quick Start S3 Bucket Name
+      QSS3BucketRegion:
+        default: Quick Start S3 bucket region
+      QSS3KeyPrefix:
+        default: Quick Start S3 Key Prefix
+
+Parameters:
+  CustomEngineMajorVersion:
+    Type: String
+    Description: >-
+       The major engine version the CEV is built on. 
+    Default: 19
+    AllowedValues:
+      - 12.1
+      - 12.2
+      - 18
+      - 19
+  CustomEngineVersionName:
+    Type: String
+    Description: >-
+       Unique custom engine version name
+    Default: 'mycustom-cev1234'
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-_\.]){1,49}$
+    ConstraintDescription: '1-50 lowercase alphanumeric characters, hyphens, underscores, or periods. Example: 19.mycustom-cev1234'
+  CustomEngineDescription:
+      Type: String
+      Default: This is RDS Custom Oracle engine
+      Description: >-
+        Description of custom CEV
+  S3MediaBucketName:
+    Type: String
+    Description: >-
+      Provide bucket name with location of Oracle binaries and patches. 
+  S3MediaPrefix:
+    Type: String
+    Description: >-
+      Provide prefix with location of Oracle binaries and patches.
+  
+
+Resources:
+  RDSCustomEventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Rule used to trigger Lamdba status check function
+      Name: !Sub 'rds-custom-oracle-check-status-${CustomEngineMajorVersion}-${CustomEngineVersionName}'
+      ScheduleExpression: rate(10 minutes)
+      State: DISABLED
+      Targets:
+          - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleSNS'
+            Id: email
+            Input:
+              Fn::ToJsonString: 
+                Phase : "cev"
+                SNSTopicArn : !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:rds-custom-oracle-notifications"
+                EventRule : !Sub "rds-custom-oracle-check-status-${CustomEngineMajorVersion}-${CustomEngineVersionName}"
+                EngineVersion : !Sub "${CustomEngineMajorVersion}.${CustomEngineVersionName}"
+                Region : !Sub ${AWS::Region}
+                
+  RDSCustomEngine:
+    Type: Custom::RDSCustomEngine
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:RDSCustomOracleEngine'
+      Region: !Ref "AWS::Region"
+      EngineVersion: !Sub '${CustomEngineMajorVersion}.${CustomEngineVersionName}'
+      KMSKeyId: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/rds-custom-oracle'
+      S3MediaBucketName: !Ref S3MediaBucketName
+      S3MediaPrefix: !Ref S3MediaPrefix
+      Description: !Ref CustomEngineDescription
+      EventRule: !Ref RDSCustomEventRule
+      
+  
+Outputs: 
+  RDSCustomEngineOutput:
+    Description: Output
+    Value: !GetAtt  RDSCustomEngine.output
+
+          
+          
+
+    
